@@ -1,0 +1,38 @@
+# Qantas Airport Directory
+
+Browse all airports returned by the Qantas reference API. Search by airport name, country, city or code, then open an airport to view its location, time zone, country currency and coordinates.
+
+## Run locally
+
+Requirements are Node.js 24, npm and Google Chrome. If you use nvm, run `nvm install` and `nvm use` in the project directory.
+
+```sh
+npm ci
+npm run dev
+```
+
+Open [the development app](http://127.0.0.1:5173/) in Chrome. To test the production build and offline reloads, run:
+
+```sh
+npm test
+npm run build
+npm run preview
+```
+
+Open [the production preview](http://127.0.0.1:4173/). To try offline mode, let the list load successfully and wait for the service worker to activate in Chrome DevTools under **Application → Service Workers**. Turn on **Offline** in the **Network** panel, keep **Disable cache** unchecked, and reload the page or a detail URL. An offline first visit needs network access to install the app and retrieve its first dataset.
+
+## Design and trade-offs
+
+- **Navigation and UX.** React, TypeScript and Vite power a mobile-first site. Search and the current page live in the URL. A detail route can be opened directly, and returning from an in-app detail restores the list state, scroll and keyboard focus. Pagination bounds DOM work on the full directory. Motion follows the system reduced-motion setting.
+- **Source and fields.** The Qantas endpoint returned a JSON array with permissive CORS and a 15-minute HTTP cache lifetime when checked. The brief asks for every airport, so the app displays the complete reference feed without inferring flight availability from the operational flags. Airport code identifies each record. Missing optional fields have a readable fallback, and malformed or duplicate records are excluded. Coordinates are converted from the feed’s signed radian fields. The feed has no currency field, so `country-to-currency` supplies the default currency for each country code. Local exceptions and multiple currencies may differ.
+- **Concurrency and rate limits.** A shared in-flight promise coalesces callers in one tab. On browsers with Web Locks, same-origin tabs serialize refreshes and recheck shared cache and cooldown state after taking the lock. A successful snapshot is fresh for 15 minutes. Requests abort after 10 seconds, including body reads. HTTP 429 and 503 use an observable `Retry-After` value or fall back to 60 and 15 seconds respectively. Other failures use a five-second cooldown. Retry is explicit after the countdown, and browser reconnection can trigger a refresh subject to the same rules. The browser handles limits for that origin and profile. A shared server cache and upstream request budget would be the next step if a wider rollout required coordination across devices.
+- **Caching and failures.** The last valid snapshot can be used for up to seven days on a new load or failed refresh. The UI shows the snapshot timestamp when it falls back. Storage denial or quota exhaustion still allows a successful online load, with in-memory caching for that session. The production service worker precaches the versioned app shell so a repeat visit can load the list or an airport detail offline. Cached data and the app shell use separate stores. They can be cleared by browser storage policies.
+- **Hosting.** Serve `dist/` at the site root over HTTPS and configure an SPA fallback to `index.html` for detail URLs. Keep `service-worker.js` revalidatable so clients can pick up new releases. The local Vite preview already supports direct links.
+
+## Tests
+
+Vitest covers response parsing, search, concurrent calls, same-origin refresh coordination, cooldowns, timeout and recovery, stale-data expiry, detail navigation, focus restoration, API failure and the service worker's offline routing. The tests stub the network for repeatability.
+
+## AI assistance
+
+ChatGPT Codex helped review the brief and API response, design and implement the app, and author and run tests. The design notes above record the assumptions and trade-offs for the interview walkthrough.
