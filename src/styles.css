@@ -11,7 +11,7 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; }
-button, input { font: inherit; }
+button, input, select { font: inherit; }
 button, a, input { -webkit-tap-highlight-color: transparent; }
 :focus-visible { outline: 3px solid #1763a6; outline-offset: 3px; }
 h1, h2, p { margin: 0; }
@@ -30,8 +30,10 @@ label { display: block; margin-top: 1.5rem; margin-bottom: .375rem; font-weight:
 input[type="search"] { color: inherit; display: block; width: min(100%, 32rem); min-height: 3rem; padding: .65rem .85rem; border-radius: .5rem; border: 1px solid #8492a6; background: white; }
 .panel { background: white; border: 1px solid var(--line); border-radius: .75rem; box-shadow: 0 4px 16px #172a4310; }
 .results-header, .pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .65rem; padding: .9rem clamp(.75rem, 3vw, 1.4rem); }
+.results-header { justify-content: flex-end; }
+.results-header > div:first-child { margin-right: auto; }
 .results-header h2, .details h2 { font-size: 1.18rem; }
-.results-header div, .pagination span { color: var(--muted); font-size: .875rem; }
+.result-count, .pagination span { color: var(--muted); font-size: .875rem; }
 .airport-list { list-style: none; padding: 0; margin: 0; }
 .airport-list li { border-top: 1px solid var(--line); }
 .airport-list a { color: inherit; text-decoration: none; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: clamp(.625rem, 3vw, 1.1rem); padding: .75rem clamp(.75rem, 3vw, 1.4rem); min-height: 4.1rem; }
@@ -67,4 +69,17 @@ button:disabled { color: #596475; background: #eef1f5; border-color: #d1d8e2; }
   .airport-list a, button, .back { transition: background-color .16s ease, border-color .16s ease, color .16s ease; }
   .detail-intro, .details { animation: enter .2s ease-out both; }
   @keyframes enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+}
+
+.result-count { margin-top: .15rem; font-variant-numeric: tabular-nums; }
+.empty button { margin-top: .75rem; }
+.results-controls { display: flex; align-items: center; gap: .5rem; }
+.results-controls label { margin: 0; font-size: .875rem; font-weight: 500; }
+.results-controls select {
+  min-height: 2.75rem;
+  padding: .35rem .5rem;
+  border: 1px solid #8492a6;
+  border-radius: .4rem;
+  color: inherit;
+  background: white;
 }

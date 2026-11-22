@@ -66,3 +66,36 @@ it('recovers from a first-load failure with an explicit retry', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
   expect(await screen.findByRole('link', { name: /heathrow/i })).toBeTruthy()
 })
+
+it('changes page size, resets to page one, and preserves the size through search and detail navigation', async () => {
+  const manyAirports = Array.from({ length: 101 }, (_, index) => ({
+    ...airports[0],
+    code: String(index).padStart(3, '0'),
+    name: `Sydney Terminal ${index}`,
+  }))
+  vi.mocked(directory.load).mockResolvedValue({ ...snapshot, airports: manyAirports })
+  open('/?page=2')
+  const size = await screen.findByRole<HTMLSelectElement>('combobox', { name: 'Airports per page' })
+  expect(size.value).toBe('20')
+  expect(screen.getByText('Showing 21–40 of 101 airports')).toBeTruthy()
+
+  fireEvent.change(size, { target: { value: '50' } })
+  expect(screen.getByText('Showing 1–50 of 101 airports')).toBeTruthy()
+  fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'sydney' } })
+  fireEvent.click(screen.getByRole('link', { name: /^000.*sydney terminal 0/i }))
+  fireEvent.click(screen.getByRole('link', { name: 'Back to airports' }))
+  expect(screen.getByRole<HTMLSelectElement>('combobox').value).toBe('50')
+
+  fireEvent.change(screen.getByRole('combobox'), { target: { value: '100' } })
+  expect(screen.getByText('Showing 1–100 of 101 airports')).toBeTruthy()
+})
+
+it('clears an empty search and returns focus to the search field', async () => {
+  open('/?q=unmatched')
+  expect(await screen.findByText('0 airports')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
+  const search = screen.getByRole<HTMLInputElement>('searchbox')
+  expect(search.value).toBe('')
+  expect(document.activeElement).toBe(search)
+  expect(screen.getByText('Showing 1–2 of 2 airports')).toBeTruthy()
+})

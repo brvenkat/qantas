@@ -4,7 +4,7 @@ import currencies from 'country-to-currency'
 import { searchAirports, type Airport } from './airports'
 import { directory, DirectoryError } from './directory'
 
-const pageSize = 30
+const pageSizes = [20, 50, 100]
 const number = new Intl.NumberFormat('en-AU')
 const date = new Intl.DateTimeFormat('en-AU', { dateStyle: 'medium', timeStyle: 'short' })
 const countryCurrency = new Map(Object.entries(currencies))
@@ -116,11 +116,14 @@ function AirportList({ airports, selection }: {
   const location = useLocation()
   const url = location.pathname + location.search
   const query = params.get('q') ?? ''
+  const requestedSize = Number(params.get('size'))
+  const pageSize = pageSizes.find(size => size === requestedSize) ?? pageSizes[0]
   const filtered = useMemo(() => searchAirports(airports, query), [airports, query])
   const pages = Math.max(1, Math.ceil(filtered.length / pageSize))
   const requestedPage = Number(params.get('page')) || 1
   const page = Math.min(pages, Math.max(1, Math.floor(requestedPage)))
   const heading = useRef<HTMLHeadingElement>(null)
+  const searchInput = useRef<HTMLInputElement>(null)
   const start = (page - 1) * pageSize
   const end = Math.min(start + pageSize, filtered.length)
 
@@ -144,9 +147,19 @@ function AirportList({ airports, selection }: {
   }
 
   function changeQuery(text: string) {
-    const updated = new URLSearchParams()
+    const updated = new URLSearchParams(params)
+    updated.delete('page')
     if (text) updated.set('q', text)
+    else updated.delete('q')
     setParams(updated, { replace: true })
+  }
+
+  function changePageSize(size: number) {
+    const updated = new URLSearchParams(params)
+    updated.delete('page')
+    if (size === pageSizes[0]) updated.delete('size')
+    else updated.set('size', String(size))
+    setParams(updated)
   }
 
   return <>
@@ -154,14 +167,24 @@ function AirportList({ airports, selection }: {
       <h1>Explore airports</h1>
       <p>Find an airport and view its location, time zone and currency.</p>
       <label htmlFor="airport-search">Search airports</label>
-      <input id="airport-search" type="search" placeholder="Name, country or airport code"
+      <input id="airport-search" ref={searchInput} type="search" placeholder="Name, country or airport code"
         value={query} onChange={event => changeQuery(event.target.value)} />
     </section>
     <section aria-labelledby="results-heading" className="panel results">
       <div className="results-header">
-        <h2 id="results-heading" ref={heading} tabIndex={-1}>Airports</h2>
-        <div role="status">
-          {filtered.length ? `${number.format(start + 1)}–${number.format(end)} of ${number.format(filtered.length)}` : '0 results'}
+        <div>
+          <h2 id="results-heading" ref={heading} tabIndex={-1}>Airports</h2>
+          <p className="result-count" role="status">
+            {filtered.length > 1
+              ? `Showing ${number.format(start + 1)}–${number.format(end)} of ${number.format(filtered.length)} airports`
+              : filtered.length === 1 ? '1 airport' : '0 airports'}
+          </p>
+        </div>
+        <div className="results-controls">
+          <label htmlFor="page-size">Airports per page</label>
+          <select id="page-size" value={pageSize} onChange={event => changePageSize(Number(event.target.value))}>
+            {pageSizes.map(size => <option key={size} value={size}>{size}</option>)}
+          </select>
         </div>
       </div>
       {filtered.length ? <ul className="airport-list">
@@ -177,7 +200,13 @@ function AirportList({ airports, selection }: {
             <span className="row-chevron" aria-hidden="true">›</span>
           </Link>
         </li>)}
-      </ul> : <p className="empty">No airports match your search.</p>}
+      </ul> : <div className="empty">
+        <p>No airports match your search.</p>
+        <button type="button" onClick={() => {
+          changeQuery('')
+          searchInput.current?.focus()
+        }}>Clear search</button>
+      </div>}
       {pages > 1 && <nav className="pagination" aria-label="Airport results pages">
         <button type="button" disabled={page === 1} onClick={() => changePage(page - 1)}>Previous</button>
         <span>Page {number.format(page)} of {number.format(pages)}</span>
