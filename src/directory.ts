@@ -1,11 +1,12 @@
 import { airportCode, parseAirports, record, type Airport } from './airports'
+import { getJson, HttpRequestError } from './services/http'
 
 export const endpoint = 'https://api.qantas.com/flight/refData/airport'
 const cacheKey = 'airport-directory:v1'
 const cooldownKey = 'airport-directory:cooldown:v1'
 const freshFor = 15 * 60_000
 const staleFor = 7 * 24 * 60 * 60_000
-const timeout = 10_000
+const attemptTimeout = 3_500
 const ordinaryCooldown = 5_000
 const rateLimitCooldown = 60_000
 
@@ -69,6 +70,28 @@ function readFailure(): DirectoryError | null {
   return null
 }
 
+function toDirectoryError(cause: unknown): DirectoryError {
+  const now = Date.now()
+  const failure = cause instanceof HttpRequestError ? cause.failure : null
+  if (failure?.kind === 'http' && (failure.status === 429 || failure.status === 503)) {
+    const limited = failure.status === 429
+    return new DirectoryError(
+      limited ? 'The airport service is receiving too many requests.' : 'The airport service is temporarily unavailable.',
+      retryDeadline(failure.retryAfter, now, limited ? rateLimitCooldown : 15_000),
+    )
+  }
+
+  const message = failure?.kind === 'timeout'
+    ? 'The airport service took too long to respond.'
+    : navigator.onLine === false
+      ? 'You appear to be offline.'
+      : 'The airport directory could not be loaded.'
+  const retryAt = failure?.kind === 'http'
+    ? retryDeadline(failure.retryAfter, now, ordinaryCooldown)
+    : now + ordinaryCooldown
+  return new DirectoryError(message, retryAt)
+}
+
 export function createDirectory() {
   let snapshot = readSnapshot()
   let failure: DirectoryError | null = null
@@ -87,33 +110,15 @@ export function createDirectory() {
     if (sharedFailure && sharedFailure.retryAt > (failure?.retryAt ?? 0)) failure = sharedFailure
     if (failure && Date.now() < failure.retryAt) throw failure
 
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), timeout)
     try {
-      const response = await fetch(endpoint, { signal: controller.signal, credentials: 'omit' })
-      if (response.status === 429 || response.status === 503) {
-        const limited = response.status === 429
-        throw new DirectoryError(
-          limited ? 'The airport service is receiving too many requests.' : 'The airport service is temporarily unavailable.',
-          retryDeadline(response.headers.get('Retry-After'), Date.now(), limited ? rateLimitCooldown : 15_000),
-        )
-      }
-      if (!response.ok) throw new Error('Airport request failed')
-      const airports = parseAirports(await response.json())
+      const airports = parseAirports(await getJson(endpoint, { timeoutMs: attemptTimeout }))
       snapshot = { airports, fetchedAt: Date.now() }
       write(cacheKey, JSON.stringify(snapshot))
       return snapshot
     } catch (cause) {
-      const message = controller.signal.aborted
-        ? 'The airport service took too long to respond.'
-        : navigator.onLine === false
-          ? 'You appear to be offline.'
-          : 'The airport directory could not be loaded.'
-      failure = cause instanceof DirectoryError ? cause : new DirectoryError(message, Date.now() + ordinaryCooldown)
+      failure = toDirectoryError(cause)
       write(cooldownKey, JSON.stringify({ message: failure.message, retryAt: failure.retryAt }))
       throw failure
-    } finally {
-      clearTimeout(timer)
     }
   }
 

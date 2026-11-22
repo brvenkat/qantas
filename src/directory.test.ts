@@ -53,13 +53,13 @@ describe('airport directory requests', () => {
   it('preserves stale data when a refresh fails and expires it after seven days', async () => {
     const fetch = vi.fn()
       .mockResolvedValueOnce(Response.json(payload))
-      .mockResolvedValueOnce(Response.json({ error: 'Unavailable' }, { status: 500 }))
+      .mockResolvedValueOnce(Response.json({ error: 'Unavailable' }, { status: 503 }))
     vi.stubGlobal('fetch', fetch)
 
     await createDirectory().load()
     vi.setSystemTime(now + minutes(16))
     const directory = createDirectory()
-    await expect(directory.load()).rejects.toThrow('could not be loaded')
+    await expect(directory.load()).rejects.toThrow('temporarily unavailable')
     expect(directory.cached()?.airports[0].code).toBe('SYD')
     vi.setSystemTime(now + minutes(7 * 24 * 60))
     expect(directory.cached()).toBeNull()
@@ -86,17 +86,17 @@ describe('airport directory requests', () => {
   })
 
   it('bounds the response wait and allows a later retry', async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>()
-      .mockImplementationOnce((_url, options) => new Promise((_resolve, reject) => {
-        options?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
-      }))
-      .mockResolvedValueOnce(Response.json(payload))
+    const fetch = vi.fn<typeof globalThis.fetch>((_url, options) => new Promise((_resolve, reject) => {
+      options?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+    }))
     vi.stubGlobal('fetch', fetch)
     const directory = createDirectory()
 
     const rejected = expect(directory.load()).rejects.toThrow('took too long')
-    await vi.advanceTimersByTimeAsync(10_000)
+    await vi.advanceTimersByTimeAsync(12_000)
     await rejected
+    expect(fetch).toHaveBeenCalledTimes(3)
+    fetch.mockResolvedValueOnce(Response.json(payload))
     await vi.advanceTimersByTimeAsync(5_000)
     await expect(directory.load()).resolves.toMatchObject({ airports: [{ code: 'SYD' }] })
   })
