@@ -24,3 +24,14 @@ describe('airport data', () => {
     }
   })
 })
+
+it('normalizes punctuation, accents and whitespace across search fields', () => {
+  const airports = parseAirports([
+    { airportCode: 'ORD', airportName: 'Chicago O’Hare', country: { countryName: 'United States' } },
+    { airportCode: 'GRU', airportName: 'São Paulo–Guarulhos', country: { countryName: 'Brazil' } },
+  ])
+  expect(searchAirports(airports, ' \t sao   paulo guarulhos BRAZIL ').map(airport => airport.code)).toEqual(['GRU'])
+  expect(searchAirports(airports, 'ohare, United States').map(airport => airport.code)).toEqual(['ORD'])
+  expect(searchAirports(airports, '  \t ')).toEqual(airports)
+  expect(searchAirports(airports, 'sao united')).toEqual([])
+})

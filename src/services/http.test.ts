@@ -62,3 +62,11 @@ it('keeps the timeout active while the body is being read', async () => {
   await vi.advanceTimersByTimeAsync(100)
   await rejection
 })
+
+it('surfaces unexpected response errors without retrying', async () => {
+  const cause = new TypeError('Unexpected response body state')
+  const fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.reject(cause) })
+  vi.stubGlobal('fetch', fetch)
+  await expect(getJson(url)).rejects.toBe(cause)
+  expect(fetch).toHaveBeenCalledOnce()
+})

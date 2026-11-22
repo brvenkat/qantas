@@ -1,4 +1,4 @@
-import { airportCode, parseAirports, record, type Airport } from './airports'
+import { isAirport, parseAirports, record, type Airport } from './airports'
 import { getJson, HttpRequestError } from './services/http'
 
 export const endpoint = 'https://api.qantas.com/flight/refData/airport'
@@ -29,21 +29,12 @@ function write(key: string, value: string) {
   try { localStorage.setItem(key, value) } catch { /* Storage may be disabled or full. */ }
 }
 
-function isAirport(value: unknown): value is Airport {
-  const entry = record(value)
-  const { code, name, coordinates } = entry
-  return typeof code === 'string' && airportCode.test(code) &&
-    typeof name === 'string' && name.length > 0 &&
-    ['country', 'countryCode', 'city', 'state', 'timezone'].every(key => typeof entry[key] === 'string') &&
-    (coordinates === null || (Array.isArray(coordinates) && coordinates.length === 2 &&
-      coordinates.every(value => typeof value === 'number' && Number.isFinite(value))))
-}
-
 function readSnapshot(): Snapshot | null {
   try {
     const snapshot = record(JSON.parse(read(cacheKey) ?? 'null'))
     if (typeof snapshot.fetchedAt === 'number' && snapshot.fetchedAt <= Date.now() &&
-      Array.isArray(snapshot.airports) && snapshot.airports.length && snapshot.airports.every(isAirport)) {
+      Array.isArray(snapshot.airports) && snapshot.airports.length && snapshot.airports.every(isAirport) &&
+      new Set(snapshot.airports.map(airport => airport.code)).size === snapshot.airports.length) {
       return { fetchedAt: snapshot.fetchedAt, airports: snapshot.airports }
     }
   } catch { /* A damaged cache can be replaced by the next fetch. */ }
@@ -60,10 +51,12 @@ export function retryDeadline(header: string | null, now: number, fallback: numb
   return Number.isFinite(parsed) ? Math.max(now + ordinaryCooldown, parsed) : now + fallback
 }
 
-function readFailure(): DirectoryError | null {
+function readFailure(snapshot: Snapshot | null): DirectoryError | null {
   try {
     const entry = record(JSON.parse(read(cooldownKey) ?? 'null'))
     if (typeof entry.message === 'string' && typeof entry.retryAt === 'number') {
+      // A newer successful snapshot supersedes a cooldown that storage could not remove.
+      if (snapshot && typeof entry.failedAt === 'number' && snapshot.fetchedAt > entry.failedAt) return null
       return new DirectoryError(entry.message, entry.retryAt)
     }
   } catch { /* The in-memory deadline still applies. */ }
@@ -106,7 +99,7 @@ export function createDirectory() {
     if (stored && (!snapshot || stored.fetchedAt > snapshot.fetchedAt)) snapshot = stored
     if (snapshot && Date.now() - snapshot.fetchedAt < freshFor) return snapshot
 
-    const sharedFailure = readFailure()
+    const sharedFailure = readFailure(snapshot)
     if (sharedFailure && sharedFailure.retryAt > (failure?.retryAt ?? 0)) failure = sharedFailure
     if (failure && Date.now() < failure.retryAt) throw failure
 
@@ -114,10 +107,12 @@ export function createDirectory() {
       const airports = parseAirports(await getJson(endpoint, { timeoutMs: attemptTimeout }))
       snapshot = { airports, fetchedAt: Date.now() }
       write(cacheKey, JSON.stringify(snapshot))
+      failure = null
+      try { localStorage.removeItem(cooldownKey) } catch { /* The successful snapshot supersedes this entry. */ }
       return snapshot
     } catch (cause) {
       failure = toDirectoryError(cause)
-      write(cooldownKey, JSON.stringify({ message: failure.message, retryAt: failure.retryAt }))
+      write(cooldownKey, JSON.stringify({ message: failure.message, retryAt: failure.retryAt, failedAt: Date.now() }))
       throw failure
     }
   }

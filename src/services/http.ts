@@ -48,7 +48,15 @@ async function fetchJson(url: string, timeoutMs: number): Promise<unknown> {
   const timer = setTimeout(() => controller.abort(), timeoutMs)
 
   try {
-    const response = await fetch(url, { signal: controller.signal, credentials: 'omit' })
+    let response: Response
+    try {
+      response = await fetch(url, { signal: controller.signal, credentials: 'omit' })
+    } catch (cause) {
+      if (!controller.signal.aborted && cause instanceof TypeError) {
+        throw new HttpRequestError({ kind: 'network' }, cause)
+      }
+      throw cause
+    }
     if (!response.ok) {
       const { status } = response
       const retryAfter = response.headers.get('Retry-After')
@@ -63,7 +71,7 @@ async function fetchJson(url: string, timeoutMs: number): Promise<unknown> {
     if (cause instanceof HttpRequestError) throw cause
     if (controller.signal.aborted) throw new HttpRequestError({ kind: 'timeout' }, cause)
     if (cause instanceof SyntaxError) throw new HttpRequestError({ kind: 'invalid-json' }, cause)
-    throw new HttpRequestError({ kind: 'network' }, cause)
+    throw cause
   } finally {
     clearTimeout(timer)
   }

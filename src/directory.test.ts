@@ -110,3 +110,67 @@ describe('airport directory requests', () => {
     await expect(directory.load()).resolves.toMatchObject({ airports: [{ code: 'SYD' }] })
   })
 })
+
+describe('persisted directory state', () => {
+  const now = Date.UTC(2026, 0, 1)
+  const cacheKey = 'airport-directory:v1'
+  const cooldownKey = 'airport-directory:cooldown:v1'
+
+  beforeEach(() => {
+    localStorage.clear()
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it.each(['duplicate code', 'invalid coordinates', 'blank name'])('rejects cached data with %s', async problem => {
+    const fetch = vi.fn().mockImplementation(() => Promise.resolve(Response.json(payload)))
+    vi.stubGlobal('fetch', fetch)
+    const snapshot = await createDirectory().load()
+    const [airport] = snapshot.airports
+    const invalid = problem === 'duplicate code' ? [airport, airport]
+      : problem === 'invalid coordinates' ? [{ ...airport, coordinates: [91, 0] }]
+      : [{ ...airport, name: '  ' }]
+    localStorage.setItem(cacheKey, JSON.stringify({ ...snapshot, airports: invalid }))
+
+    const directory = createDirectory()
+    expect(directory.cached()).toBeNull()
+    await expect(directory.load()).resolves.toEqual(snapshot)
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('clears a prior cooldown after a successful refresh', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 429 }))
+      .mockResolvedValueOnce(Response.json(payload)))
+    const directory = createDirectory()
+    await expect(directory.load()).rejects.toThrow('too many requests')
+    expect(localStorage.getItem(cooldownKey)).not.toBeNull()
+
+    vi.setSystemTime(now + 60_000)
+    await directory.load()
+    expect(localStorage.getItem(cooldownKey)).toBeNull()
+  })
+
+  it('ignores an older persisted cooldown when storage cannot remove it after recovery', async () => {
+    const fetch = vi.fn().mockImplementation(() => Promise.resolve(Response.json(payload)))
+    vi.stubGlobal('fetch', fetch)
+    localStorage.setItem(cooldownKey, JSON.stringify({ message: 'Rate limited', failedAt: now - 1, retryAt: now + minutes(60) }))
+    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementationOnce(() => null)
+      .mockImplementationOnce(() => null).mockImplementationOnce(() => null)
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('Storage unavailable') })
+
+    await createDirectory().load()
+    getItem.mockRestore()
+    expect(localStorage.getItem(cooldownKey)).not.toBeNull()
+
+    vi.setSystemTime(now + minutes(16))
+    await expect(createDirectory().load()).resolves.toMatchObject({ fetchedAt: now + minutes(16) })
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+})

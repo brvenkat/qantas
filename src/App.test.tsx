@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router'
+import { BrowserRouter, MemoryRouter } from 'react-router'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { App } from './App'
 import { directory, DirectoryError } from './directory'
@@ -98,4 +98,30 @@ it('clears an empty search and returns focus to the search field', async () => {
   expect(search.value).toBe('')
   expect(document.activeElement).toBe(search)
   expect(screen.getByText('Showing 1–2 of 2 airports')).toBeTruthy()
+})
+
+it('restores list state and focus through Back, Forward, and Back again', async () => {
+  window.history.replaceState(null, '', '/?q=syd&size=50')
+  try {
+    render(<BrowserRouter><App /></BrowserRouter>)
+    const link = await screen.findByRole('link', { name: /kingsford smith/i })
+    vi.spyOn(window, 'scrollY', 'get').mockReturnValue(240)
+    fireEvent.click(link)
+    expect(window.location.pathname).toBe('/airports/SYD')
+
+    window.history.back()
+    expect(await screen.findByRole('link', { name: /kingsford smith/i })).toBe(document.activeElement)
+    expect(window.location.search).toBe('?q=syd&size=50')
+    expect(window.scrollTo).toHaveBeenLastCalledWith(0, 240)
+
+    window.history.forward()
+    expect(await screen.findByRole('heading', { name: /kingsford smith/i })).toBe(document.activeElement)
+
+    window.history.back()
+    expect(await screen.findByRole('link', { name: /kingsford smith/i })).toBe(document.activeElement)
+    expect(window.scrollTo).toHaveBeenLastCalledWith(0, 240)
+  } finally {
+    cleanup()
+    window.history.replaceState(null, '', '/')
+  }
 })
